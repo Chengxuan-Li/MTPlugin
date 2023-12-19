@@ -56,6 +56,10 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="NodeType.cs" />
+    <Compile Include="Model.cs" />
+    <Compile Include="ModelHelper.cs" />
+    <Compile Include="ModelSettings.cs" />
     <Compile Include="MTPluginComponent.cs" />
     <Compile Include="MTPluginInfo.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

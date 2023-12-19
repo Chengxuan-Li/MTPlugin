@@ -84,7 +84,7 @@ namespace MTPlugin
             List<Curve> buildings = new List<Curve>();
             List<Line> boundaries = new List<Line>();
             Rectangle3d boundaryRectangle = new Rectangle3d();
-            double segmentationDistance = 0.2;
+            double segmentationDistance = 1.0;
             double offsetDistance = 0.2;
             // Then we need to access the input parameters individually. 
             // When data cannot be extracted from a parameter, we should abort this method.
@@ -102,14 +102,24 @@ namespace MTPlugin
                 FootprintDivideInterval = segmentationDistance,
             };
 
-            Model model = new Model(buildings, boundaries, boundaryRectangle, settings);
+            Model model = new Model {
+                Buildings = buildings,
+                Boundaries = boundaries,
+                BoundaryRectangle = boundaryRectangle,
+                ModelSettings = settings
+            };
 
-
+            model.Preprocessing();
+            model.Solve();
+            model.PostProcessing();
+            List<Point3d> points;
+            List<Curve> triangles;
+            model.GeometryResults(out points, out triangles);
 
             // assignment of output variables
-            DA.SetDataList(0, model.Point3ds);
-            DA.SetDataList(1, model.Lines);
-            DA.SetDataList(2, model.Triangles);
+            DA.SetDataList(0, points);
+            
+            DA.SetDataList(2, triangles);
 
             //DA.SetDataList(7, dm.EdgeBelongingsInt);
         }
