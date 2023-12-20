@@ -9,6 +9,7 @@ namespace MTPlugin
     public enum NodeType
     {
         Building = 1,
-        Boundary = 2
+        Link = 2,
+        BoundaryRectangle = 3,
     }
 }

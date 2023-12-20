@@ -59,11 +59,17 @@ namespace MTPlugin
             pManager.AddPointParameter("Node Points", "Pt", "All nodes as points", GH_ParamAccess.list);
             pManager.AddLineParameter("Edges", "E", "All edges", GH_ParamAccess.list);
             pManager.AddCurveParameter("Triangles", "T", "All Triangles", GH_ParamAccess.list);
-            pManager.AddIntegerParameter("Footprint Points", "FP", "All footprint points as indices", GH_ParamAccess.tree);
-            pManager.AddIntegerParameter("Footprint Parcel Index", "FPPI", "Index of the corresponding parcel in parcels list", GH_ParamAccess.tree);
-            pManager.AddIntegerParameter("Parcel Bounds Loop", "PBL", "Parcel boundary loop points as indices", GH_ParamAccess.tree);
-            pManager.AddIntegerParameter("Footprint Block Index", "FPBI", "Index of the corresponding parcel in parcels list", GH_ParamAccess.tree);
-            pManager.AddIntegerParameter("Block Bounds Loop", "BBL", "Block boundary loop points as indices", GH_ParamAccess.tree);
+            pManager.AddCurveParameter("Cells", "C", "All Cells", GH_ParamAccess.list);
+            pManager.AddIntegerParameter("NConnectivity", "NC", "Number of Connectivity", GH_ParamAccess.list);
+            pManager.AddIntegerParameter("NCellC", "NCC", "Number of Cell Connectivity", GH_ParamAccess.list);
+            pManager.AddCurveParameter("VS", "V", "test VS", GH_ParamAccess.list);
+            pManager.AddCurveParameter("RGP", "R", "test RGP", GH_ParamAccess.list);
+
+            //pManager.AddIntegerParameter("Footprint Points", "FP", "All footprint points as indices", GH_ParamAccess.tree);
+            //pManager.AddIntegerParameter("Footprint Parcel Index", "FPPI", "Index of the corresponding parcel in parcels list", GH_ParamAccess.tree);
+            //pManager.AddIntegerParameter("Parcel Bounds Loop", "PBL", "Parcel boundary loop points as indices", GH_ParamAccess.tree);
+            //pManager.AddIntegerParameter("Footprint Block Index", "FPBI", "Index of the corresponding parcel in parcels list", GH_ParamAccess.tree);
+            //pManager.AddIntegerParameter("Block Bounds Loop", "BBL", "Block boundary loop points as indices", GH_ParamAccess.tree);
 
 
 
@@ -82,14 +88,14 @@ namespace MTPlugin
             // First, we need to retrieve all data from the input parameters.
             // We'll start by declaring variables and assigning them starting values.
             List<Curve> buildings = new List<Curve>();
-            List<Line> boundaries = new List<Line>();
+            List<Line> links = new List<Line>();
             Rectangle3d boundaryRectangle = new Rectangle3d();
             double segmentationDistance = 1.0;
             double offsetDistance = 0.2;
             // Then we need to access the input parameters individually. 
             // When data cannot be extracted from a parameter, we should abort this method.
             if (!DA.GetDataList(0, buildings)) return;
-            if (!DA.GetDataList(1, boundaries)) return;
+            if (!DA.GetDataList(1, links)) return;
             if (!DA.GetData(2, ref boundaryRectangle)) return;
             if (!DA.GetData(3, ref segmentationDistance)) return;
             if (!DA.GetData(4, ref offsetDistance)) return;
@@ -98,13 +104,13 @@ namespace MTPlugin
             ModelSettings settings = new ModelSettings()
             {
                 OffsetDist = offsetDistance,
-                BoundaryDivideInterval = segmentationDistance,
+                LinkDivideInterval = segmentationDistance,
                 FootprintDivideInterval = segmentationDistance,
             };
 
             Model model = new Model {
                 Buildings = buildings,
-                Boundaries = boundaries,
+                Links = links,
                 BoundaryRectangle = boundaryRectangle,
                 ModelSettings = settings
             };
@@ -114,12 +120,24 @@ namespace MTPlugin
             model.PostProcessing();
             List<Point3d> points;
             List<Curve> triangles;
-            model.GeometryResults(out points, out triangles);
+            List<Curve> voronoiCells;
+            List<int> c1;
+            List<int> c2;
+            List<Curve> vs;
+            List<Curve> rgp;
+            model.GeometryResults(out points, out triangles, out voronoiCells);
+            model.TestOut(out c1, out c2);
+            model.TestOutVoronoi(out vs, out rgp);
 
             // assignment of output variables
             DA.SetDataList(0, points);
             
             DA.SetDataList(2, triangles);
+            DA.SetDataList(3, voronoiCells);
+            DA.SetDataList(4, c1);
+            DA.SetDataList(5, c2);
+            DA.SetDataList(6, vs);
+            DA.SetDataList(7, rgp);
 
             //DA.SetDataList(7, dm.EdgeBelongingsInt);
         }
