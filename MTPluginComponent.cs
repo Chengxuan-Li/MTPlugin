@@ -57,15 +57,13 @@ namespace MTPlugin
             // Use the pManager object to register your output parameters.
             // Output parameters do not have default values, but they too must have the correct access type.
             pManager.AddPointParameter("Node Points", "Pt", "All nodes as points", GH_ParamAccess.list);
-            pManager.AddLineParameter("Edges", "E", "All edges", GH_ParamAccess.list);
             pManager.AddCurveParameter("Triangles", "T", "All Triangles", GH_ParamAccess.list);
-            pManager.AddCurveParameter("Cells", "C", "All Cells", GH_ParamAccess.list);
-            pManager.AddIntegerParameter("NConnectivity", "NC", "Number of Connectivity", GH_ParamAccess.list);
-            pManager.AddIntegerParameter("NCellC", "NCC", "Number of Cell Connectivity", GH_ParamAccess.list);
-            pManager.AddCurveParameter("VS", "V", "test VS", GH_ParamAccess.list);
-            pManager.AddCurveParameter("RGP", "R", "test RGP", GH_ParamAccess.list);
-            pManager.AddCurveParameter("RGC", "Rc", "test RGC", GH_ParamAccess.list);
-            pManager.AddIntegerParameter("RGPid", "Ri", "test RGpid", GH_ParamAccess.list);
+            pManager.AddCurveParameter("TVCells", "TVC", "All Traditional Voronoi Cells", GH_ParamAccess.list);
+            pManager.AddCurveParameter("GVCells", "GVC", "All Guided Voronoi Cells", GH_ParamAccess.list);
+            pManager.AddCurveParameter("Traditional Regions", "TR", "All Traditional Regions", GH_ParamAccess.list);
+            pManager.AddCurveParameter("Guided Regions", "GR", "All Guided Regions", GH_ParamAccess.list);
+            pManager.AddCurveParameter("Extended Guided Regions", "EGR", "Extended Guided Regions", GH_ParamAccess.list);
+            pManager.AddIntegerParameter("Building Id", "BId", "Building Ids", GH_ParamAccess.list);
 
             //pManager.AddIntegerParameter("Footprint Points", "FP", "All footprint points as indices", GH_ParamAccess.tree);
             //pManager.AddIntegerParameter("Footprint Parcel Index", "FPPI", "Index of the corresponding parcel in parcels list", GH_ParamAccess.tree);
@@ -120,30 +118,33 @@ namespace MTPlugin
             model.Preprocessing();
             model.Solve();
             model.PostProcessing();
-            List<Point3d> points;
-            List<Curve> triangles;
-            List<Curve> voronoiCells;
-            List<int> c1;
-            List<int> c2;
-            List<Curve> vs;
-            List<Curve> rgp;
-            List<Curve> rgc;
-            List<int> rgpid;
-            model.GeometryResults(out points, out triangles, out voronoiCells);
-            model.TestOut(out c1, out c2);
-            model.TestOutVoronoi(out vs, out rgp, out rgc, out rgpid);
+            model.ProcessRemainingTriangles();
+            List<Point3d> nodePoints = model.NodePoints;
+            List<Curve> triangles = new List<Curve>();
+            List<Curve> traditionalVoronoiCells = new List<Curve>();
+            List<Curve> guidedVoronoiCells = new List<Curve>();
+            List<Curve> traditionalRegions = new List<Curve>();
+            List<Curve> guidedRegions = new List<Curve>();
+            List<Curve> extendedGuidedRegions = new List<Curve>();
+            List<int> buildingIds = model.BuildingIds;
+
+            model.Triangles.ForEach(t => triangles.Add(t.ToNurbsCurve()));
+            model.TraditionalVoronoiCells.ForEach(t => traditionalVoronoiCells.Add(t.ToNurbsCurve()));
+            model.GuidedVoronoiCells.ForEach(t => guidedVoronoiCells.Add(t.ToNurbsCurve()));
+            //model.Triangles.ForEach(t => traditionalRegions.Add(t.ToNurbsCurve()));
+            model.GuidedRegions.ForEach(t => guidedRegions.Add(t != null? t.ToNurbsCurve() : null));
+            model.ExtendedGuidedRegions.ForEach(t => extendedGuidedRegions.Add(t != null ? t.ToNurbsCurve() : null));
+
 
             // assignment of output variables
-            DA.SetDataList(0, points);
-            
-            DA.SetDataList(2, triangles);
-            DA.SetDataList(3, voronoiCells);
-            DA.SetDataList(4, c1);
-            DA.SetDataList(5, c2);
-            DA.SetDataList(6, vs);
-            DA.SetDataList(7, rgp);
-            DA.SetDataList(8, rgc);
-            DA.SetDataList(9, rgpid);
+            DA.SetDataList(0, nodePoints);
+            DA.SetDataList(1, triangles);
+            DA.SetDataList(2, traditionalVoronoiCells);
+            DA.SetDataList(3, guidedVoronoiCells);
+            DA.SetDataList(4, traditionalRegions);
+            DA.SetDataList(5, guidedRegions);
+            DA.SetDataList(6, extendedGuidedRegions);
+            DA.SetDataList(7, buildingIds);
 
             //DA.SetDataList(7, dm.EdgeBelongingsInt);
         }

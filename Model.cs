@@ -13,19 +13,29 @@ namespace MTPlugin
 {
     public class Model
     {
+        // input
         public List<Curve> Buildings = new List<Curve>();
         public List<Line> Links = new List<Line>();
         public Rectangle3d BoundaryRectangle = new Rectangle3d();
         public ModelSettings ModelSettings = new ModelSettings();
 
+        // intermediate
         public List<Node2> Node2s = new List<Node2>();
         public List<NodeType> NodeTypes = new List<NodeType>();
-        
-
         public List<Node2> BoundaryPoints;
 
+        // output
+        public List<Point3d> NodePoints = new List<Point3d>();
+        public List<Polyline> Triangles = new List<Polyline>();
+        public List<Polyline> TraditionalVoronoiCells = new List<Polyline>();
+        public List<Polyline> GuidedVoronoiCells = new List<Polyline>();
+        public List<Polyline> TraditionalRegions = new List<Polyline>();
+        public List<Polyline> GuidedRegions = new List<Polyline>();
+        public List<Polyline> ExtendedGuidedRegions = new List<Polyline>();
+        public List<int> BuildingIds = new List<int>();
 
-        
+
+        // properties
         public ModelHelper Helper
         {
             get
@@ -87,17 +97,21 @@ namespace MTPlugin
         public void PostProcessing()
         {
 
-        }
 
-        public void GeometryResults(out List<Point3d> points, out List<Curve> triangles, out List<Curve> voronoiCells)
-        {
-            List<Point3d> pts = new List<Point3d>();
-            List<Curve> ts = new List<Curve>();
-            List<Curve> cs = new List<Curve>();
 
-            Node2s.ForEach(n => pts.Add(new Point3d(n.x, n.y, 0)));
-            faces.ForEach(f => ts.Add(
-                (
+            NodePoints = new List<Point3d>(); // done
+            Triangles = new List<Polyline>(); // done
+
+            TraditionalVoronoiCells = new List<Polyline>(); // done
+            GuidedVoronoiCells = new List<Polyline>(); // done
+
+            TraditionalRegions = new List<Polyline>();
+            GuidedRegions = new List<Polyline>(); // done
+
+            BuildingIds = new List<int>();
+
+            Node2s.ForEach(n => NodePoints.Add(new Point3d(n.x, n.y, 0)));
+            faces.ForEach(f => Triangles.Add(
                 new Polyline(
                     new List<Point3d> {
                         new Point3d(
@@ -114,39 +128,308 @@ namespace MTPlugin
                             )
                     }
                     )
-                ).ToNurbsCurve()
                 )
             );
 
-            
+            cells.ForEach(c => TraditionalVoronoiCells.Add(c.ToPolyline()));
 
-            //cells.ForEach(c => cs.Add(HandleCell(c).ToNurbsCurve()));
-            /*
-            for (int i = 0; i < cells.Count; i++)
+            List<int> currentNodeConnections = new List<int>();
+            List<Point3d> currentGuidedVoronoiCellPoints = new List<Point3d>();
+
+            Node2 baseNode;
+            Node2 currentNode;
+            Node2 nextNode;
+            Node2 previousNode;
+
+
+
+            for (int currentNodeIndex = 0; currentNodeIndex < connectivity.Count; currentNodeIndex++)
             {
-                cs.Add(HandleCell(cells[i], i).ToNurbsCurve());
+                if (NodeTypes[currentNodeIndex] == NodeType.Building)
+                {
+                    currentNodeConnections = connectivity.GetConnections(currentNodeIndex);
+
+                    currentGuidedVoronoiCellPoints = new List<Point3d>();
+
+
+                    baseNode = Node2s[currentNodeIndex];
+                    currentNodeConnections.Sort((x, y) => angleCompare(baseNode, Node2s[x], Node2s[y]));
+
+                    for (int currentConnectionIndex = 0; currentConnectionIndex < currentNodeConnections.Count; currentConnectionIndex++)
+                    {
+                        int nextConnectionIndex = currentConnectionIndex + 1;
+                        int previousConnectionIndex = currentConnectionIndex - 1;
+                        if (currentConnectionIndex == currentNodeConnections.Count - 1)
+                        {
+                            nextConnectionIndex = 0;
+                        }
+                        if (currentConnectionIndex == 0)
+                        {
+                            previousConnectionIndex = currentNodeConnections.Count - 1;
+                        }
+                        nextNode = Node2s[currentNodeConnections[nextConnectionIndex]];
+                        currentNode = Node2s[currentNodeConnections[currentConnectionIndex]];
+                        previousNode = Node2s[currentNodeConnections[previousConnectionIndex]];
+
+                        if (NodeTypes[currentNodeIndex] == NodeType.Building)
+                        {
+                            if (NodeTypes[currentNodeConnections[currentConnectionIndex]] == NodeType.Building)
+                            {
+                                if (NodeTypes[currentNodeConnections[previousConnectionIndex]] == NodeType.Link)
+                                {
+                                    currentGuidedVoronoiCellPoints.Add(circumCenter(baseNode, currentNode, previousNode));
+                                }
+                                currentGuidedVoronoiCellPoints.Add(circumCenter(baseNode, currentNode, nextNode));
+
+                            }
+                            else if (NodeTypes[currentNodeConnections[currentConnectionIndex]] == NodeType.Link)
+                            {
+                                currentGuidedVoronoiCellPoints.Add(new Point3d(currentNode.x, currentNode.y, 0));
+                            }
+                        }
+                    }
+
+                    if (currentGuidedVoronoiCellPoints.Count > 2)
+                    {
+                        currentGuidedVoronoiCellPoints.Add(currentGuidedVoronoiCellPoints[0]);
+                    }
+
+                    GuidedVoronoiCells.Add(new Polyline(currentGuidedVoronoiCellPoints));
+
+                    regions[Node2s[currentNodeIndex].tag].AddPolyline(new Polyline(currentGuidedVoronoiCellPoints));
+
+                }
             }
-            */
-            points = pts;
-            triangles = ts;
-            //voronoiCells = cs;
-            cells.ForEach(c => cs.Add(c.ToPolyline().ToNurbsCurve()));
-            voronoiCells = cs;
+
+
+
+
+            Polyline polyline;
+            regions.ForEach(r => GuidedRegions.Add(
+                r.Compute(out polyline) ? polyline : null
+                ));
+
+            foreach (Region region in regions)
+            {
+                if (region.Status)
+                {
+                    BuildingIds.Add(region.Id);
+                }
+            }
+
         }
 
-        public void TestOut(out List<int> con1, out List<int> con2)
+        public void ProcessRemainingTriangles()
         {
-            List<int> c1 = new List<int>();
-            List<int> c2 = new List<int>();
-            for (int i = 0; i < connectivity.Count; i++)
+            ExtendedGuidedRegions = new List<Polyline>();
+
+
+            List<int> remainingFaceIds = new List<int>();
+            for (int i = 0; i < faces.Count; i++)
             {
-                c1.Add(connectivity.GetConnections(i).Count);
+                var face = faces[i];
+                if (
+                    ((NodeTypes[face.A] == NodeType.Link ? 1 : 0) +
+                    (NodeTypes[face.B] == NodeType.Link ? 1 : 0) +
+                    (NodeTypes[face.C] == NodeType.Link ? 1 : 0)) == 3
+                    )
+                {
+                    remainingFaceIds.Add(i);
+                }
             }
-            cells.ForEach(c => c2.Add(c.C.Count));
-            con1 = c1;
-            con2 = c2;
+
+            List<int> idBelongings = Enumerable.Repeat(-1, remainingFaceIds.Count).ToList();
+            int numStep = 0;
+            int stepLimit = 50;//test
+            List<int> nonAdjacentNodeIds;
+            List<int> adjacentFaceIds;
+            List<int> orders;
+            while (idBelongings.FindIndex(i => i == -1) != -1)
+            {
+                for(int j = 0; j < remainingFaceIds.Count; j++)
+                {
+                    if (idBelongings[j] == -1)
+                    {
+                        int id = remainingFaceIds[j];
+                        orders = OrderedByEdgeLength(id);
+
+                        adjacentFaceIds = FindAdjacentFaces(id, out nonAdjacentNodeIds);
+
+                        if (nonAdjacentNodeIds[orders[0]] != -1 && NodeTypes[nonAdjacentNodeIds[orders[0]]] == NodeType.Building)
+                        {
+                            idBelongings[j] = Node2s[nonAdjacentNodeIds[orders[0]]].tag;
+                        }
+                        else if (nonAdjacentNodeIds[orders[1]] != -1 && NodeTypes[nonAdjacentNodeIds[orders[1]]] == NodeType.Building)
+                        {
+                            idBelongings[j] = Node2s[nonAdjacentNodeIds[orders[1]]].tag;
+                        }
+                        else if (nonAdjacentNodeIds[orders[2]] != -1 && NodeTypes[nonAdjacentNodeIds[orders[2]]] == NodeType.Building)
+                        {
+                            idBelongings[j] = Node2s[nonAdjacentNodeIds[orders[2]]].tag;
+                        }
+                    }
+                }
+
+                numStep++;
+                if (numStep >= stepLimit)
+                {
+                    break;
+                }
+            }
+
+            for (int i = 0; i < remainingFaceIds.Count; i++)
+            {
+                if (idBelongings[i] != -1)
+                {
+                    regions[idBelongings[i]].AddPolyline(Triangles[remainingFaceIds[i]]);
+                }
+            }
+
+            Polyline polyline;
+            regions.ForEach(r => ExtendedGuidedRegions.Add(
+                r.Compute(out polyline) ? polyline : null
+                ));
         }
 
+        List<int> OrderedByEdgeLength(int id)
+        {
+            var face = faces[id];
+            double a = Node2s[face.B].Distance(Node2s[face.C]);
+            double b = Node2s[face.A].Distance(Node2s[face.C]);
+            double c = Node2s[face.A].Distance(Node2s[face.B]);
+            if (a > b)
+            {
+                if (b > c)
+                {
+                    return new List<int> { 0, 1, 2};
+                } else if (a > c)
+                {
+                    return new List<int> { 0, 2, 1 };
+                } else
+                {
+                    return new List<int> { 2, 0, 1 };
+                }
+            } else
+            {
+                if (a > c)
+                {
+                    return new List<int> { 1, 0, 2 };
+                } else if (b > c)
+                {
+                    return new List<int> { 1, 2, 0 };
+                } else
+                {
+                    return new List<int> { 2, 1, 0 };
+                }
+            }    
+        }
+
+        List<int> FindFaceIdBy2Points(int a, int b, out List<int> otherPointList)
+        {
+            List<int> result = new List<int>();
+            otherPointList = new List<int>();
+            for (int i = 0; i < faces.Count; i++)
+            {
+                var face = faces[i];
+                if (face.A == a && face.B == b)
+                {
+                    result.Add(i);
+                    otherPointList.Add(face.C);
+                } else if (face.B == a && face.A == b)
+                {
+                    result.Add(i);
+                    otherPointList.Add(face.C);
+                } else if (face.A == a && face.C == b)
+                {
+                    result.Add(i);
+                    otherPointList.Add(face.B);
+                } else if (face.C == a && face.A == b)
+                {
+                    result.Add(i);
+                    otherPointList.Add(face.B);
+                } else if (face.B == a && face.C == b)
+                {
+                    result.Add(i);
+                    otherPointList.Add(face.A);
+                } else if (face.C == a && face.B == b)
+                {
+                    result.Add(i);
+                    otherPointList.Add(face.A);
+                }
+            }
+            return result;
+        }
+
+        bool PointInFace(int pointId, int faceId)
+        {
+            var face = faces[faceId];
+            return ((face.A == pointId ? 1 : 0) + (face.B == pointId ? 1 : 0) + (face.C == pointId ? 1 : 0)) == 1;
+        }
+
+        List<int> FindAdjacentFaces(int faceId, out List<int> nonAdjacentNodeIds)
+        {
+            List<int> result = new List<int>();
+            nonAdjacentNodeIds = new List<int>();
+            var face = faces[faceId];
+            List<int> otherNodeList;
+            var adjacenciesBC = FindFaceIdBy2Points(face.B, face.C, out otherNodeList);
+            if (adjacenciesBC.Count == 2)
+            {
+                if (PointInFace(face.A, adjacenciesBC[0]))
+                {
+                    result.Add(adjacenciesBC[1]);
+                    nonAdjacentNodeIds.Add(otherNodeList[1]);
+                } else
+                {
+                    result.Add(adjacenciesBC[0]);
+                    nonAdjacentNodeIds.Add(otherNodeList[0]);
+                }
+            } else
+            {
+                result.Add(-1);
+                nonAdjacentNodeIds.Add(-1);
+            }
+            var adjacenciesAC = FindFaceIdBy2Points(face.A, face.C, out otherNodeList);
+            if (adjacenciesAC.Count == 2)
+            {
+                if (PointInFace(face.B, adjacenciesAC[0]))
+                {
+                    result.Add(adjacenciesAC[1]);
+                    nonAdjacentNodeIds.Add(otherNodeList[1]);
+                }
+                else
+                {
+                    result.Add(adjacenciesAC[0]);
+                    nonAdjacentNodeIds.Add(otherNodeList[0]);
+                }
+            } else
+            {
+                result.Add(-1);
+                nonAdjacentNodeIds.Add(-1);
+            }
+            var adjacenciesAB = FindFaceIdBy2Points(face.A, face.B, out otherNodeList);
+            if (adjacenciesAB.Count == 2)
+            {
+                if (PointInFace(face.C, adjacenciesAB[0]))
+                {
+                    result.Add(adjacenciesAB[1]);
+                    nonAdjacentNodeIds.Add(otherNodeList[1]);
+                }
+                else
+                {
+                    result.Add(adjacenciesAB[0]);
+                    nonAdjacentNodeIds.Add(otherNodeList[0]);
+                }
+            } else
+            {
+                result.Add(-1);
+                nonAdjacentNodeIds.Add(-1);
+            }
+            return result;
+        }
+
+
+        /*
         public void TestOutVoronoi(out List<Curve> voronoi, out List<Curve> regionsOutline, out List<Curve> combinedOutline, out List<int> rgpid)
         {
             List<Curve> vs = new List<Curve>();
@@ -174,7 +457,7 @@ namespace MTPlugin
                 rgPId = new List<int>();
 
                 nn = Node2s[i];
-                cs.Sort((x, y) => AngleCompare(nn, Node2s[x], Node2s[y]));
+                cs.Sort((x, y) => angleCompare(nn, Node2s[x], Node2s[y]));
 
                 for (int j = 0; j < cs.Count; j++)
                 {
@@ -191,7 +474,7 @@ namespace MTPlugin
                     nextNode = Node2s[cs[next]];
                     thisNode = Node2s[cs[j]];
                     prevNode = Node2s[cs[prev]];
-                    nextTriCP.Add(CircumCenter(nn, thisNode, prevNode));
+                    nextTriCP.Add(circumCenter(nn, thisNode, prevNode));
                     //CircumCenter(nn, thisNode, prevNode)
                     //new Point3d(thisNode.x, thisNode.y, 0)
 
@@ -201,9 +484,9 @@ namespace MTPlugin
                         {
                             if (NodeTypes[cs[prev]] == NodeType.Link)
                             {
-                                rgP.Add(CircumCenter(nn, thisNode, prevNode));
+                                rgP.Add(circumCenter(nn, thisNode, prevNode));
                             }
-                            rgP.Add(CircumCenter(nn, thisNode, nextNode));
+                            rgP.Add(circumCenter(nn, thisNode, nextNode));
 
                         } else if (NodeTypes[cs[j]] == NodeType.Link)
                         {
@@ -222,7 +505,7 @@ namespace MTPlugin
                 if (NodeTypes[i] == NodeType.Building)
                 {
                     regions[Node2s[i].tag].Add(rgP);
-                    regions[Node2s[i].tag].AltAdd((new Polyline(rgP)).ToNurbsCurve());
+                    regions[Node2s[i].tag].AddPolyline((new Polyline(rgP)).ToNurbsCurve());
                 }
                 ri.Add(Node2s[i].tag);
             }
@@ -230,13 +513,10 @@ namespace MTPlugin
             voronoi = vs;
             regionsOutline = rg;
 
-            //regions.ForEach(r => r.ProcessWaitlist());
-            //regions.ForEach(r => cb.Add(new Polyline(r.OutlinePts).ToNurbsCurve()));
-            //regions.ForEach(r => cb.Add(r.AltJoinRegion()));
 
             Curve crv;
             regions.ForEach(r => cb.Add(
-                r.AltGet(out crv) ? crv : null
+                r.Compute(out crv) ? crv : null
                 ));
             
             combinedOutline = cb;
@@ -246,22 +526,34 @@ namespace MTPlugin
             rgpid = ri;
 
 
-        }
+        }*/
+
 
 
         internal class Region
         {
             public int Id;
             public NodeType RegionType;
-            List<Point3d> pts = new List<Point3d>();
-            List<int> ptsId = new List<int>();
-            List<List<Point3d>> waitlist = new List<List<Point3d>>();
-            List<List<int>> waitlistIds = new List<List<int>>();
+            public bool Status = false;
+            //List<Point3d> pts = new List<Point3d>();
+            //List<int> ptsId = new List<int>();
+            //List<List<Point3d>> waitlist = new List<List<Point3d>>();
+            //List<List<int>> waitlistIds = new List<List<int>>();
 
 
-            List<Curve> crvs = new List<Curve>();
+            List<Polyline> polylines = new List<Polyline>();
 
+            List<Curve> curves
+            {
+                get
+                {
+                    List<Curve> crvs = new List<Curve>();
+                    polylines.ForEach(p => crvs.Add(p.ToNurbsCurve()));
+                    return crvs;
+                }
+            }
 
+            /*
             public List<Point3d> OutlinePts
             {
                 get
@@ -272,37 +564,40 @@ namespace MTPlugin
                     return op;
                 }
             }
+            */
 
-            public Region()
+            public void AddPolyline(Polyline polyline)
             {
-                
+                Status = false;
+                polylines.Add(polyline);
             }
 
-
-            public void AltAdd(Curve curve)
+            public bool Compute(out Polyline polyline)
             {
-                crvs.Add(curve);
-            }
-
-            public bool AltGet(out Curve curve)
-            {
-                curve = null;
-                if (crvs.Count == 0)
+                Status = false;
+                polyline = null;
+                if (polylines.Count == 0)
                 {
                     return false;
                 }
-                var cs = Curve.CreateBooleanUnion(crvs, RhinoDoc.ActiveDoc.ModelAbsoluteTolerance);
-                if (cs.Length > 0)
+
+                var crvs = Curve.CreateBooleanUnion(curves, RhinoDoc.ActiveDoc.ModelAbsoluteTolerance);
+                if (crvs.Length > 0)
                 {
-                    curve = cs[0];
-                    return true;
+                    if (crvs[0].TryGetPolyline(out polyline))
+                    {
+                        polylines = new List<Polyline> { polyline };
+                        Status = true;
+                        return true;
+                    }
+                    return false;
                 } else
                 {
                     return false;
                 }
             }
 
-
+            /*
             public void Add(List<Point3d> ps)
             {
                 List<Point3d> wlp = new List<Point3d>();
@@ -478,16 +773,17 @@ namespace MTPlugin
                 joinedRegion = jr;
                 joinedRegion.Add(joinedRegion[0]);
             }
+            */
         }
 
-        int AngleCompare(Node2 origin, Node2 A, Node2 B)
+        int angleCompare(Node2 origin, Node2 A, Node2 B)
         {
             double ax = A.x - origin.x;
             double ay = A.y - origin.y;
             double bx = B.x - origin.x;
             double by = B.y - origin.y;
-            double aq = Quadrant(ax, ay);
-            double bq = Quadrant(bx, by);
+            double aq = quadrant(ax, ay);
+            double bq = quadrant(bx, by);
 
             if (aq != bq)
             {
@@ -504,7 +800,7 @@ namespace MTPlugin
             }
         }
 
-        double Quadrant(double x, double y)
+        double quadrant(double x, double y)
         {
             if (x == 0 && y > 0)
             {
@@ -542,7 +838,7 @@ namespace MTPlugin
 
         }
 
-        Point3d CircumCenter(Node2 A, Node2 B, Node2 C)
+        Point3d circumCenter(Node2 A, Node2 B, Node2 C)
         {
 
             // Calculate midpoints of sides
@@ -564,6 +860,7 @@ namespace MTPlugin
             return new Point3d(circumcenterX, circumcenterY, 0);
         }
 
+        /*
         Polyline HandleCell(Grasshopper.Kernel.Geometry.Voronoi.Cell2 cell, int cid)
         {
             List<Node2> node2s = cell.C;
@@ -621,6 +918,6 @@ namespace MTPlugin
 
 
         }
-
+        */
     }
 }
