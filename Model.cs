@@ -20,6 +20,7 @@ namespace MTPlugin
 
         public List<Node2> Node2s = new List<Node2>();
         public List<NodeType> NodeTypes = new List<NodeType>();
+        
 
         public List<Node2> BoundaryPoints;
 
@@ -36,39 +37,36 @@ namespace MTPlugin
         Grasshopper.Kernel.Geometry.Delaunay.Connectivity connectivity;
         List<Grasshopper.Kernel.Geometry.Delaunay.Face> faces;
         List<Grasshopper.Kernel.Geometry.Voronoi.Cell2> cells;
+        List<Region> regions = new List<Region>();
 
-        
 
         public void Preprocessing()
         {
-            int id = 0;
             for (int i = 0; i < Buildings.Count; i++)
             {
                 Polyline pl;
                 Buildings[i].TryGetPolyline(out pl);
                 pl = Helper.OffsetInwards(pl);
                 List<Point3d> pts = Helper.DividePolyline(pl);
-                pts.ForEach(p => Node2s.Add(new Node2(p.X, p.Y, id)));
+                pts.ForEach(p => Node2s.Add(new Node2(p.X, p.Y, i)));
                 pts.ForEach(p => NodeTypes.Add(NodeType.Building));
-                id++;
+                regions.Add(new Region() { Id = i, RegionType = NodeType.Building });
             }
 
             for (int i = 0; i < Links.Count; i++)
             {
                 Line line = Links[i];
                 List<Point3d> pts = Helper.DivideLine(line, (int)Math.Ceiling(line.Length / ModelSettings.FootprintDivideInterval), false, false);
-                pts.ForEach(p => Node2s.Add(new Node2(p.X, p.Y, id)));
+                pts.ForEach(p => Node2s.Add(new Node2(p.X, p.Y, i)));
                 pts.ForEach(p => NodeTypes.Add(NodeType.Link));
-                id++;
             }
 
             BoundaryPoints = new List<Node2> {
-                    new Node2(BoundaryRectangle.Corner(0).X, BoundaryRectangle.Corner(0).Y, id),
-                    new Node2(BoundaryRectangle.Corner(1).X, BoundaryRectangle.Corner(1).Y, id + 1),
-                    new Node2(BoundaryRectangle.Corner(2).X, BoundaryRectangle.Corner(2).Y, id + 2),
-                    new Node2(BoundaryRectangle.Corner(3).X, BoundaryRectangle.Corner(3).Y, id + 3)
+                    new Node2(BoundaryRectangle.Corner(0).X, BoundaryRectangle.Corner(0).Y, 0),
+                    new Node2(BoundaryRectangle.Corner(1).X, BoundaryRectangle.Corner(1).Y, 1),
+                    new Node2(BoundaryRectangle.Corner(2).X, BoundaryRectangle.Corner(2).Y, 2),
+                    new Node2(BoundaryRectangle.Corner(3).X, BoundaryRectangle.Corner(3).Y, 3)
             };
-            id += 4;
 
 
             //BoundaryPoints.ForEach(p => Node2s.Add(p));
@@ -149,14 +147,17 @@ namespace MTPlugin
             con2 = c2;
         }
 
-        public void TestOutVoronoi(out List<Curve> voronoi, out List<Curve> regions)
+        public void TestOutVoronoi(out List<Curve> voronoi, out List<Curve> regionsOutline, out List<Curve> combinedOutline, out List<int> rgpid)
         {
             List<Curve> vs = new List<Curve>();
             List<int> cs = new List<int>();
             List<Curve> rg = new List<Curve>();
+            List<Curve> cb = new List<Curve>();
+            List<int> ri = new List<int>();
 
             List<Point3d> nextTriCP = new List<Point3d>();
             List<Point3d> rgP = new List<Point3d>();
+            List<int> rgPId = new List<int>();
             Node2 nn;
             Node2 thisNode;
             Node2 nextNode;
@@ -170,6 +171,7 @@ namespace MTPlugin
                 
                 nextTriCP = new List<Point3d>();
                 rgP = new List<Point3d>();
+                rgPId = new List<int>();
 
                 nn = Node2s[i];
                 cs.Sort((x, y) => AngleCompare(nn, Node2s[x], Node2s[y]));
@@ -208,24 +210,274 @@ namespace MTPlugin
                             rgP.Add(new Point3d(thisNode.x, thisNode.y, 0));
                         }
                     }
-
-
-
-
-
                 }
                 //nextTriCP.Sort((x, y) => AngleCompare(nn, new Node2(x.X, x.Y), new Node2(y.X, y.Y)));
                 nextTriCP.Add(nextTriCP[0]);
-                
-                
+                if (rgP.Count > 0)
+                {
+                    rgP.Add(rgP[0]);
+                }
                 vs.Add((new Polyline(nextTriCP)).ToNurbsCurve());
                 rg.Add((new Polyline(rgP)).ToNurbsCurve());
-
+                if (NodeTypes[i] == NodeType.Building)
+                {
+                    regions[Node2s[i].tag].Add(rgP);
+                    regions[Node2s[i].tag].AltAdd((new Polyline(rgP)).ToNurbsCurve());
+                }
+                ri.Add(Node2s[i].tag);
             }
 
             voronoi = vs;
-            regions = rg;
+            regionsOutline = rg;
 
+            //regions.ForEach(r => r.ProcessWaitlist());
+            //regions.ForEach(r => cb.Add(new Polyline(r.OutlinePts).ToNurbsCurve()));
+            //regions.ForEach(r => cb.Add(r.AltJoinRegion()));
+
+            Curve crv;
+            regions.ForEach(r => cb.Add(
+                r.AltGet(out crv) ? crv : null
+                ));
+            
+            combinedOutline = cb;
+
+
+
+            rgpid = ri;
+
+
+        }
+
+
+        internal class Region
+        {
+            public int Id;
+            public NodeType RegionType;
+            List<Point3d> pts = new List<Point3d>();
+            List<int> ptsId = new List<int>();
+            List<List<Point3d>> waitlist = new List<List<Point3d>>();
+            List<List<int>> waitlistIds = new List<List<int>>();
+
+
+            List<Curve> crvs = new List<Curve>();
+
+
+            public List<Point3d> OutlinePts
+            {
+                get
+                {
+                    List<Point3d> op = new List<Point3d>();
+                    ptsId.ForEach(pi => op.Add(pts[pi]));
+                    op.Add(op[0]);
+                    return op;
+                }
+            }
+
+            public Region()
+            {
+                
+            }
+
+
+            public void AltAdd(Curve curve)
+            {
+                crvs.Add(curve);
+            }
+
+            public bool AltGet(out Curve curve)
+            {
+                curve = null;
+                if (crvs.Count == 0)
+                {
+                    return false;
+                }
+                var cs = Curve.CreateBooleanUnion(crvs, RhinoDoc.ActiveDoc.ModelAbsoluteTolerance);
+                if (cs.Length > 0)
+                {
+                    curve = cs[0];
+                    return true;
+                } else
+                {
+                    return false;
+                }
+            }
+
+
+            public void Add(List<Point3d> ps)
+            {
+                List<Point3d> wlp = new List<Point3d>();
+                List<int> wlpId = new List<int>();
+                ps.ForEach(p => wlp.Add(p));
+                wlpId.AddRange(Enumerable.Range(0, ps.Count));
+                waitlist.Add(wlp);
+                waitlistIds.Add(wlpId);
+
+            }
+
+            public Curve AltJoinRegion()
+            {
+                List<Curve> crvs = new List<Curve>();
+                waitlist.ForEach(w => crvs.Add(
+                    new Polyline(w).ToNurbsCurve()
+                    ));
+                var c = Curve.CreateBooleanUnion(crvs, RhinoDoc.ActiveDoc.ModelAbsoluteTolerance);
+                if (c.Length > 0)
+                {
+                    return c[0];
+                } else
+                {
+                    return null;
+                }
+                
+            }
+
+
+            public void ProcessWaitlist()
+            {
+                List<int> jr;
+                List<int> psId = new List<int>();
+
+                for (int i = 0; i < waitlist.Count; i++)
+                {
+                    for (int j = 0; j < waitlist[i].Count; j++)
+                    {
+                        int pos = pts.FindIndex(pt => pt.DistanceTo(waitlist[i][j]) < RhinoDoc.ActiveDoc.ModelAbsoluteTolerance);
+                        if (pos < 0)
+                        {
+                            waitlistIds[i][j] = pts.Count;
+                            pts.Add(waitlist[i][j]);
+                        } else
+                        {
+                            waitlistIds[i][j] = pos;
+                        }
+                    }
+                }
+
+                //给region join的结果加上成功与否的判断，条件来自于共享点数>2，然后选择能够join的优先join
+                ptsId = new List<int>();
+                waitlistIds[0].ForEach(i => ptsId.Add(i));
+                waitlistIds.RemoveAt(0);
+
+                int wi = 0;
+                while (waitlistIds.Count > 0)
+                {
+                    if (numCommon(ptsId, waitlistIds[wi]) >= 2)
+                    {
+                        if (numCommon(ptsId, waitlistIds[wi]) == waitlistIds[wi].Count)
+                        {
+                            waitlistIds.RemoveAt(0);
+                            wi = 0;
+                        } else if (numCommon(ptsId, waitlistIds[wi]) == ptsId.Count)
+                        {
+                            ptsId = new List<int>();
+                            waitlistIds[wi].ForEach(r => ptsId.Add(r));
+                            waitlistIds.RemoveAt(0);
+                            wi = 0;
+                        } 
+                        
+                        if (waitlistIds.Count == 0)
+                        {
+                            break;
+                        }
+
+                        jr = new List<int>();
+                        joinRegion(ptsId, waitlistIds[wi], out jr);
+                        ptsId = new List<int>();
+                        jr.ForEach(r => ptsId.Add(r));
+                        waitlistIds.RemoveAt(0);
+                        wi = 0;
+
+                    } else
+                    {
+                        wi++;
+                        if (wi >= waitlistIds.Count)
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+
+
+            int numCommon(List<int> regionA, List<int> regionB)
+            {
+                int num = 0;
+                regionA.ForEach(a =>
+                num += (regionB.FindIndex(b => b == a) >= 0 ? 1 : 0)
+                    );
+                return num;
+            }
+
+            void joinRegion(List<int> regionA, List<int> regionB, out List<int> joinedRegion)
+            {
+                List<int> jr = new List<int>();
+                List<int> ra = new List<int>();
+                List<int> rb = new List<int>();
+                List<int> posAinB = new List<int>();
+                List<int> posBinA = new List<int>();
+
+                regionA.ForEach(a => ra.Add(a));
+                ra.RemoveAt(ra.Count - 1);
+                regionB.ForEach(b => rb.Add(b));
+                rb.RemoveAt(rb.Count - 1);
+
+                if (numCommon(ra, rb) == ra.Count)
+                {
+                    joinedRegion = regionB;
+                    return;
+                } else if (numCommon(ra, rb) == rb.Count)
+                {
+                    joinedRegion = regionA;
+                    return;
+                }
+
+
+                while (rb.FindIndex(b => b == ra[0]) != -1)
+                {
+                    ra.Add(ra[0]);
+                    ra.RemoveAt(0);
+                }
+
+                while (ra.FindIndex(a => a == rb[0]) != -1)
+                {
+                    rb.Add(rb[0]);
+                    rb.RemoveAt(0);
+                }
+
+                ra.ForEach(a => posBinA.Add(rb.FindIndex(b => b == a)));
+                rb.ForEach(b => posAinB.Add(ra.FindIndex(a => a == b)));
+
+                var fA = posBinA.FindAll(e => e >= 0);
+                var fB = posAinB.FindAll(e => e >= 0);
+
+                if (fA[0] > fA[1])
+                {
+                    jr.AddRange(ra.GetRange(0, fB[fB.Count - 1]));
+                    var sg1 = rb.GetRange(fA[0], rb.Count - fA[0]);
+                    jr.AddRange(sg1);
+                    var sg2 = rb.GetRange(0, fA[fA.Count - 1]);
+                    jr.AddRange(sg2);
+                    jr.AddRange(ra.GetRange(fB[0], ra.Count - fB[0]));
+
+                }
+                else
+                {
+                    jr.AddRange(ra.GetRange(0, fB[0] + 1));
+                    var sg1 = rb.GetRange(0, fA[0]);
+                    sg1.Reverse();
+                    jr.AddRange(sg1);
+                    if (rb.Count - fA[fA.Count - 1] >= 2)
+                    {
+                        var sg2 = rb.GetRange(fA[fA.Count - 1] + 1, rb.Count - fA[fA.Count - 1] - 1);
+                        sg2.Reverse();
+                        jr.AddRange(sg2);
+                    }
+                    jr.AddRange(ra.GetRange(fB[fB.Count - 1], ra.Count - fB[fB.Count - 1]));
+                }
+
+                joinedRegion = jr;
+                joinedRegion.Add(joinedRegion[0]);
+            }
         }
 
         int AngleCompare(Node2 origin, Node2 A, Node2 B)

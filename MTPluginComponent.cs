@@ -64,6 +64,8 @@ namespace MTPlugin
             pManager.AddIntegerParameter("NCellC", "NCC", "Number of Cell Connectivity", GH_ParamAccess.list);
             pManager.AddCurveParameter("VS", "V", "test VS", GH_ParamAccess.list);
             pManager.AddCurveParameter("RGP", "R", "test RGP", GH_ParamAccess.list);
+            pManager.AddCurveParameter("RGC", "Rc", "test RGC", GH_ParamAccess.list);
+            pManager.AddIntegerParameter("RGPid", "Ri", "test RGpid", GH_ParamAccess.list);
 
             //pManager.AddIntegerParameter("Footprint Points", "FP", "All footprint points as indices", GH_ParamAccess.tree);
             //pManager.AddIntegerParameter("Footprint Parcel Index", "FPPI", "Index of the corresponding parcel in parcels list", GH_ParamAccess.tree);
@@ -125,9 +127,11 @@ namespace MTPlugin
             List<int> c2;
             List<Curve> vs;
             List<Curve> rgp;
+            List<Curve> rgc;
+            List<int> rgpid;
             model.GeometryResults(out points, out triangles, out voronoiCells);
             model.TestOut(out c1, out c2);
-            model.TestOutVoronoi(out vs, out rgp);
+            model.TestOutVoronoi(out vs, out rgp, out rgc, out rgpid);
 
             // assignment of output variables
             DA.SetDataList(0, points);
@@ -138,6 +142,8 @@ namespace MTPlugin
             DA.SetDataList(5, c2);
             DA.SetDataList(6, vs);
             DA.SetDataList(7, rgp);
+            DA.SetDataList(8, rgc);
+            DA.SetDataList(9, rgpid);
 
             //DA.SetDataList(7, dm.EdgeBelongingsInt);
         }
