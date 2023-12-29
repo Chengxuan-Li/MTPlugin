@@ -177,9 +177,22 @@ namespace MTPlugin
                             {
                                 if (NodeTypes[currentNodeConnections[previousConnectionIndex]] == NodeType.Link)
                                 {
-                                    currentGuidedVoronoiCellPoints.Add(circumCenter(baseNode, currentNode, previousNode));
+                                    currentGuidedVoronoiCellPoints.Add(adjustedBBBCenter(baseNode, currentNode, previousNode, false));
                                 }
-                                currentGuidedVoronoiCellPoints.Add(circumCenter(baseNode, currentNode, nextNode));
+                                // this adds the center to the BBB cell
+                                //currentGuidedVoronoiCellPoints.Add(circumCenter(baseNode, currentNode, nextNode));
+
+                                // only one from the above and the below should be active
+
+                                // this adds the adjusted BBB center to the BBB cell - test
+                                if (NodeTypes[currentNodeConnections[nextConnectionIndex]] == NodeType.Link)
+                                {
+                                    currentGuidedVoronoiCellPoints.Add(adjustedBBBCenter(baseNode, currentNode, nextNode, false));
+                                } else
+                                {
+                                    currentGuidedVoronoiCellPoints.Add(adjustedBBBCenter(baseNode, currentNode, nextNode, true));
+                                }
+
 
                             }
                             else if (NodeTypes[currentNodeConnections[currentConnectionIndex]] == NodeType.Link)
@@ -240,7 +253,7 @@ namespace MTPlugin
 
             List<int> idBelongings = Enumerable.Repeat(-1, remainingFaceIds.Count).ToList();
             int numStep = 0;
-            int stepLimit = 50;//test
+            int stepLimit = 2;//test
             List<int> nonAdjacentNodeIds;
             List<int> adjacentFaceIds;
             List<int> orders;
@@ -858,6 +871,61 @@ namespace MTPlugin
             double circumcenterY = slopeAB * circumcenterX + yInterceptAB;
 
             return new Point3d(circumcenterX, circumcenterY, 0);
+        }
+
+        Point3d adjustedBBBCenter(Node2 A, Node2 B, Node2 C, bool Simplify)
+        {
+            if (Math.Max(A.Distance(B), Math.Max(B.Distance(C), A.Distance(C))) >= 1.5 * ModelSettings.FootprintDivideInterval)
+            {
+                Simplify = false;
+            }
+            if (Simplify)
+            {
+                if (A.tag == B.tag && B.tag == C.tag)
+                {
+                    return circumCenter(A, B, C);
+                }
+                if (A.tag == B.tag && A.Distance(B) <= 1.5 * ModelSettings.FootprintDivideInterval)
+                {
+                    return new Point3d(
+                        A.x / 4 + B.x / 4 + C.x / 2,
+                        A.y / 4 + B.y / 4 + C.y / 2,
+                        0
+                        );
+                }
+                else if (A.tag == C.tag && A.Distance(C) <= 1.5 * ModelSettings.FootprintDivideInterval)
+                {
+                    return new Point3d(
+                        A.x / 4 + B.x / 2 + C.x / 4,
+                        A.y / 4 + B.y / 2 + C.y / 4,
+                        0
+                        );
+                }
+                else if (B.tag == C.tag && B.Distance(C) <= 1.5 * ModelSettings.FootprintDivideInterval)
+                {
+                    return new Point3d(
+                        A.x / 2 + B.x / 4 + C.x / 4,
+                        A.y / 2 + B.y / 4 + C.y / 4,
+                        0
+                        );
+                }
+                else
+                {
+                    return circumCenter(A, B, C);
+                    /*
+                    return new Point3d(
+                        A.x / 3 + B.x / 3 + C.x / 3,
+                        A.y / 3 + B.y / 3 + C.y / 3,
+                        0
+                        );
+                    */
+                }
+            } else
+            {
+                return circumCenter(A, B, C);
+            }
+ 
+
         }
 
         /*
