@@ -26,6 +26,9 @@ namespace MTPlugin
 
         // output
         public List<Point3d> NodePoints = new List<Point3d>();
+        public List<string> NodeTypesString = new List<string>();
+        public List<int> NodeParentIds = new List<int>();
+
         public List<Polyline> Triangles = new List<Polyline>();
         public List<Polyline> TraditionalVoronoiCells = new List<Polyline>();
         public List<Polyline> GuidedVoronoiCells = new List<Polyline>();
@@ -66,7 +69,7 @@ namespace MTPlugin
             for (int i = 0; i < Links.Count; i++)
             {
                 Line line = Links[i];
-                List<Point3d> pts = Helper.DivideLine(line, (int)Math.Ceiling(line.Length / ModelSettings.FootprintDivideInterval), false, false);
+                List<Point3d> pts = Helper.DivideLine(line, (int)Math.Ceiling(line.Length / ModelSettings.LinkDiscretizationInterval), false, false);
                 pts.ForEach(p => Node2s.Add(new Node2(p.X, p.Y, i)));
                 pts.ForEach(p => NodeTypes.Add(NodeType.Link));
             }
@@ -78,6 +81,9 @@ namespace MTPlugin
                     new Node2(BoundaryRectangle.Corner(3).X, BoundaryRectangle.Corner(3).Y, 3)
             };
 
+            BoundaryPoints.ForEach(n => Node2s.Add(n));
+            BoundaryPoints.ForEach(n => NodeTypes.Add(NodeType.BoundaryRectangle));
+
 
             //BoundaryPoints.ForEach(p => Node2s.Add(p));
             //BoundaryPoints.ForEach(p => NodeTypes.Add(NodeType.BoundaryRectangle));
@@ -88,29 +94,114 @@ namespace MTPlugin
         {
             Node2List node2List = new Node2List();
             Node2s.ForEach(n => node2List.Append(n));
+            
             connectivity = Grasshopper.Kernel.Geometry.Delaunay.Solver.Solve_Connectivity(node2List, ModelSettings.JitterAmount, true);
             faces = Grasshopper.Kernel.Geometry.Delaunay.Solver.Solve_Faces(node2List, ModelSettings.JitterAmount);
             cells = Grasshopper.Kernel.Geometry.Voronoi.Solver.Solve_Connectivity(node2List, connectivity, BoundaryPoints);
 
         }   
 
-        public void PostProcessing()
+        public void InitializeResults()
         {
 
-
-
             NodePoints = new List<Point3d>(); // done
+            NodeTypesString = new List<string>(); // done, tests needed
+            NodeParentIds = new List<int>(); // done, tests needed
+
             Triangles = new List<Polyline>(); // done
 
             TraditionalVoronoiCells = new List<Polyline>(); // done
             GuidedVoronoiCells = new List<Polyline>(); // done
 
-            TraditionalRegions = new List<Polyline>();
+            TraditionalRegions = new List<Polyline>(); // TODO
             GuidedRegions = new List<Polyline>(); // done
 
-            BuildingIds = new List<int>();
+            BuildingIds = new List<int>(); // done
+        }
 
+        public void PostProcessing()
+        {
             Node2s.ForEach(n => NodePoints.Add(new Point3d(n.x, n.y, 0)));
+
+            NodeTypes.ForEach(nt => NodeTypesString.Add(nt.ToString()));
+            Node2s.ForEach(n => NodeParentIds.Add(n.tag));
+
+
+
+
+            // this is extra content for 20240101
+
+            List<int> LLLFaces = new List<int>();
+
+            for (int i = 0; i < faces.Count; i++)
+            {
+                if (NodeTypes[faces[i].A] == NodeType.Link && NodeTypes[faces[i].B] == NodeType.Link && NodeTypes[faces[i].C] == NodeType.Link)
+                {
+                    LLLFaces.Add(i);
+                }
+            }
+
+            int iterations = 0;
+            int maxIterations = 15;
+            List<int> opsFaces = new List<int>();
+            List<int> opsA = new List<int>();
+            List<int> opsB = new List<int>();
+            List<int> opsC = new List<int>();
+
+            int iterationsWithoutImprovement = 0;
+
+            while (iterations < maxIterations)
+            {
+
+                int j = 0;
+                while (j < LLLFaces.Count)
+                {
+                    opsFaces = new List<int>();
+                    opsA = new List<int>();
+                    opsB = new List<int>();
+                    opsC = new List<int>();
+                    if (tryAlternateLLLFace(LLLFaces[j], ref opsFaces, ref opsA, ref opsB, ref opsC))
+                    {
+                        j++;
+                    } else
+                    {
+                        j++;
+                    }
+                    for (int k = 0; k < opsFaces.Count; k++)
+                    {
+                        faces[opsFaces[k]].Set(opsA[k], opsB[k], opsC[k]);
+                    }
+                }
+
+
+                int LLLCount = LLLFaces.Count;
+                LLLFaces.RemoveAll(f => NodeTypes[faces[f].A] == NodeType.Building || (NodeTypes[faces[f].B] == NodeType.Building || NodeTypes[faces[f].C] == NodeType.Building));
+
+                if (LLLCount == LLLFaces.Count)
+                {
+                    iterationsWithoutImprovement++;
+                    if (iterationsWithoutImprovement >= 0)
+                    {
+                        break;
+                    }
+                } else
+                {
+                    iterationsWithoutImprovement = 0;
+                }
+
+                iterations++;
+            }
+
+            Node2List node2List = new Node2List();
+
+            Node2s.ForEach(n => node2List.Append(n));
+            connectivity.SolveConnectivity(node2List, faces, true);
+            //faces = Grasshopper.Kernel.Geometry.Delaunay.Solver.Solve_Faces(node2List, ModelSettings.JitterAmount);
+            //cells = Grasshopper.Kernel.Geometry.Voronoi.Solver.Solve_Connectivity(node2List, connectivity, BoundaryPoints);
+
+            // end of extra content for 20240101
+
+
             faces.ForEach(f => Triangles.Add(
                 new Polyline(
                     new List<Point3d> {
@@ -175,24 +266,36 @@ namespace MTPlugin
                         {
                             if (NodeTypes[currentNodeConnections[currentConnectionIndex]] == NodeType.Building)
                             {
-                                if (NodeTypes[currentNodeConnections[previousConnectionIndex]] == NodeType.Link)
+                                if (ModelSettings.EnableAdaptiveNetwork)
                                 {
-                                    currentGuidedVoronoiCellPoints.Add(adjustedBBBCenter(baseNode, currentNode, previousNode, false));
-                                }
-                                // this adds the center to the BBB cell
-                                //currentGuidedVoronoiCellPoints.Add(circumCenter(baseNode, currentNode, nextNode));
+                                    if (NodeTypes[currentNodeConnections[previousConnectionIndex]] == NodeType.Link)
+                                    {
+                                        currentGuidedVoronoiCellPoints.Add(adjustedBBBCenter(baseNode, currentNode, previousNode, false));
+                                    }
+                                    // this adds the center to the BBB cell
+                                    //currentGuidedVoronoiCellPoints.Add(circumCenter(baseNode, currentNode, nextNode));
 
-                                // only one from the above and the below should be active
+                                    // only one from the above and the below should be active
 
-                                // this adds the adjusted BBB center to the BBB cell - test
-                                if (NodeTypes[currentNodeConnections[nextConnectionIndex]] == NodeType.Link)
-                                {
-                                    currentGuidedVoronoiCellPoints.Add(adjustedBBBCenter(baseNode, currentNode, nextNode, false));
+                                    // this adds the adjusted BBB center to the BBB cell - test
+                                    if (NodeTypes[currentNodeConnections[nextConnectionIndex]] == NodeType.Link)
+                                    {
+                                        currentGuidedVoronoiCellPoints.Add(adjustedBBBCenter(baseNode, currentNode, nextNode, false));
+                                    }
+                                    else
+                                    {
+                                        currentGuidedVoronoiCellPoints.Add(adjustedBBBCenter(baseNode, currentNode, nextNode, true));
+                                    }
                                 } else
                                 {
-                                    currentGuidedVoronoiCellPoints.Add(adjustedBBBCenter(baseNode, currentNode, nextNode, true));
-                                }
+                                    if (NodeTypes[currentNodeConnections[previousConnectionIndex]] == NodeType.Link)
+                                    {
+                                        currentGuidedVoronoiCellPoints.Add(circumCenter(baseNode, currentNode, previousNode));
+                                    }
+                                    // this adds the center to the BBB cell
+                                    currentGuidedVoronoiCellPoints.Add(circumCenter(baseNode, currentNode, nextNode));
 
+                                }
 
                             }
                             else if (NodeTypes[currentNodeConnections[currentConnectionIndex]] == NodeType.Link)
@@ -379,6 +482,12 @@ namespace MTPlugin
             return ((face.A == pointId ? 1 : 0) + (face.B == pointId ? 1 : 0) + (face.C == pointId ? 1 : 0)) == 1;
         }
 
+        /// <summary>
+        /// Find the id of adjacent faces of the given face
+        /// </summary>
+        /// <param name="faceId">id of the given face</param>
+        /// <param name="nonAdjacentNodeIds">list of ids of the opposite nodes to the respectful edge of the given face, arranged in BC, AC, AB order</param>
+        /// <returns>list of ids of the adjacent face via the respectful edge of the given face, arranged in BC, AC, AB order</returns>
         List<int> FindAdjacentFaces(int faceId, out List<int> nonAdjacentNodeIds)
         {
             List<int> result = new List<int>();
@@ -875,7 +984,7 @@ namespace MTPlugin
 
         Point3d adjustedBBBCenter(Node2 A, Node2 B, Node2 C, bool Simplify)
         {
-            if (Math.Max(A.Distance(B), Math.Max(B.Distance(C), A.Distance(C))) >= 1.5 * ModelSettings.FootprintDivideInterval)
+            if (Math.Max(A.Distance(B), Math.Max(B.Distance(C), A.Distance(C))) >= 1.5 * ModelSettings.FootprintDiscretizationInterval)
             {
                 Simplify = false;
             }
@@ -885,7 +994,7 @@ namespace MTPlugin
                 {
                     return circumCenter(A, B, C);
                 }
-                if (A.tag == B.tag && A.Distance(B) <= 1.5 * ModelSettings.FootprintDivideInterval)
+                if (A.tag == B.tag && A.Distance(B) <= 1.5 * ModelSettings.FootprintDiscretizationInterval)
                 {
                     return new Point3d(
                         A.x / 4 + B.x / 4 + C.x / 2,
@@ -893,7 +1002,7 @@ namespace MTPlugin
                         0
                         );
                 }
-                else if (A.tag == C.tag && A.Distance(C) <= 1.5 * ModelSettings.FootprintDivideInterval)
+                else if (A.tag == C.tag && A.Distance(C) <= 1.5 * ModelSettings.FootprintDiscretizationInterval)
                 {
                     return new Point3d(
                         A.x / 4 + B.x / 2 + C.x / 4,
@@ -901,7 +1010,7 @@ namespace MTPlugin
                         0
                         );
                 }
-                else if (B.tag == C.tag && B.Distance(C) <= 1.5 * ModelSettings.FootprintDivideInterval)
+                else if (B.tag == C.tag && B.Distance(C) <= 1.5 * ModelSettings.FootprintDiscretizationInterval)
                 {
                     return new Point3d(
                         A.x / 2 + B.x / 4 + C.x / 4,
@@ -927,6 +1036,163 @@ namespace MTPlugin
  
 
         }
+
+        bool tryAlternateLLLFace(int faceId, ref List<int> opsFaces, ref List<int> opsA, ref List<int> opsB, ref List<int> opsC)
+        {
+
+            List<int> nonAdjacentNodeIds;
+            List<int> adjacentFaces = FindAdjacentFaces(faceId, out nonAdjacentNodeIds);
+            int adjacentFaceId = -1;
+            int A = -1;
+            int B = -1;
+            int C = -1;
+            int D = -1;
+
+            List<double> edgeLengths = new List<double>
+            {
+                Node2s[faces[faceId].B].Distance(Node2s[faces[faceId].C]),
+                Node2s[faces[faceId].A].Distance(Node2s[faces[faceId].C]),
+                Node2s[faces[faceId].A].Distance(Node2s[faces[faceId].B]),
+            };
+
+            double argumentationRatio = 1.05;
+
+            if (nonAdjacentNodeIds[0] != -1 && edgeLengths[0] * argumentationRatio >= edgeLengths[1] && edgeLengths[0] * argumentationRatio >= edgeLengths[2])
+            {
+                A = faces[faceId].A;
+                B = faces[faceId].B;
+                C = faces[faceId].C;
+                D = nonAdjacentNodeIds[0];
+                adjacentFaceId = adjacentFaces[0];
+            } else if (nonAdjacentNodeIds[1] != -1 && edgeLengths[1] * argumentationRatio >= edgeLengths[0] && edgeLengths[1] * argumentationRatio >= edgeLengths[2])
+            {
+                A = faces[faceId].B;
+                B = faces[faceId].C;
+                C = faces[faceId].A;
+                D = nonAdjacentNodeIds[1];
+                adjacentFaceId = adjacentFaces[1];
+            } else if (nonAdjacentNodeIds[2] != -1 && edgeLengths[2] * argumentationRatio >= edgeLengths[0] && edgeLengths[2] * argumentationRatio >= edgeLengths[1])
+            {
+                A = faces[faceId].C;
+                B = faces[faceId].A;
+                C = faces[faceId].B;
+                D = nonAdjacentNodeIds[2];
+                adjacentFaceId = adjacentFaces[2];
+            } else
+            {
+                return false;
+            }
+            opsFaces.Add(faceId);
+            opsA.Add(A);
+            opsB.Add(C);
+            opsC.Add(D);
+
+            opsFaces.Add(adjacentFaceId);
+            opsA.Add(A);
+            opsB.Add(B);//this one is wrong
+            opsC.Add(D);
+            return true;
+
+            /*
+            int tempB;
+            int tempC;
+            double maxEdgeLength = -1.0;
+            
+
+
+            
+            for (int i = 0; i < nonAdjacentNodeIds.Count; i++)
+            {
+                if (nonAdjacentNodeIds[i] != -1 && NodeTypes[nonAdjacentNodeIds[i]] == NodeType.Building)
+                {
+                    double currentEdgeLength;
+                    if (faces[adjacentFaces[i]].A == nonAdjacentNodeIds[i])
+                    {
+                        currentEdgeLength = Node2s[faces[adjacentFaces[i]].B].Distance(Node2s[faces[adjacentFaces[i]].C]);
+                        tempB = faces[adjacentFaces[i]].B;
+                        tempC = faces[adjacentFaces[i]].C;
+                    } else if (faces[adjacentFaces[i]].B == nonAdjacentNodeIds[i])
+                    {
+                        currentEdgeLength = Node2s[faces[adjacentFaces[i]].A].Distance(Node2s[faces[adjacentFaces[i]].C]);
+                        tempB = faces[adjacentFaces[i]].C;
+                        tempC = faces[adjacentFaces[i]].A;
+
+                    } else
+                    {
+                        currentEdgeLength = Node2s[faces[adjacentFaces[i]].A].Distance(Node2s[faces[adjacentFaces[i]].B]);
+                        tempB = faces[adjacentFaces[i]].B;
+                        tempC = faces[adjacentFaces[i]].A;
+                    }
+                    if (currentEdgeLength > maxEdgeLength)
+                    {
+                        maxEdgeLength = currentEdgeLength;
+                        B = tempB;
+                        C = tempC;
+                        D = nonAdjacentNodeIds[i];
+                        adjacentFaceId = adjacentFaces[i];
+                    }
+                }
+            }
+            
+
+            if (maxEdgeLength < 0)
+            {
+                return false;
+            } else
+            {
+                A = ((B == faces[faceId].A || B == faces[faceId].B) && (C == faces[faceId].A || C == faces[faceId].B))
+                    ? faces[faceId].C
+                    : ((B == faces[faceId].C || B == faces[faceId].A) && (C == faces[faceId].C || C == faces[faceId].A))
+                    ? faces[faceId].B
+                    : faces[faceId].A;
+      
+                opsFaces.Add(faceId);
+                opsA.Add(A);
+                opsB.Add(C);
+                opsC.Add(D);
+
+                opsFaces.Add(adjacentFaceId);
+                opsA.Add(A);
+                opsB.Add(B);//this one is wrong
+                opsC.Add(D);
+                return true;
+
+           
+            }
+            */
+
+
+        }
+
+        bool analyseAdjacentTriangles(int a, int b, out int A, out int B, out int C, out int D, out int idA, out int idB)
+        {
+            List<int> otherPoints;
+            List<int> faceIds;
+            A = -1;
+            B = -1;
+            C = -1;
+            D = -1;
+            idA = -1;
+            idB = -1;
+            faceIds = FindFaceIdBy2Points(a, b, out otherPoints);
+            if (otherPoints.Count < 2)
+            {
+                return false;
+            }
+            if (NodeTypes[otherPoints[0]] == NodeType.Building || NodeTypes[otherPoints[1]] == NodeType.Building)
+            {
+
+                A = a;
+                B = otherPoints[0];
+                C = b;
+                D = otherPoints[1];
+                idA = faceIds[0];
+                idB = faceIds[1];
+                return true;
+            }
+            return false;
+        }
+
 
         /*
         Polyline HandleCell(Grasshopper.Kernel.Geometry.Voronoi.Cell2 cell, int cid)

@@ -43,10 +43,10 @@ namespace MTPlugin
         // 1218 this seems to be working
         public Polyline OffsetInwards(Polyline polyline)
         {
-            var offsetResult = polyline.ToPolylineCurve().Offset(Rhino.Geometry.Plane.WorldXY, Settings.OffsetDist, RhinoDoc.ActiveDoc.ModelAbsoluteTolerance, CurveOffsetCornerStyle.Sharp);
+            var offsetResult = polyline.ToPolylineCurve().Offset(Rhino.Geometry.Plane.WorldXY, Settings.OffsetDistance, RhinoDoc.ActiveDoc.ModelAbsoluteTolerance, CurveOffsetCornerStyle.Sharp);
             if (polyline.ToNurbsCurve().Contains(offsetResult[0].PointAt(0.5), Rhino.Geometry.Plane.WorldXY, Rhino.RhinoDoc.ActiveDoc.ModelAbsoluteTolerance) != PointContainment.Inside)
             {
-                offsetResult = polyline.ToPolylineCurve().Offset(Rhino.Geometry.Plane.WorldXY, -Settings.OffsetDist, RhinoDoc.ActiveDoc.ModelAbsoluteTolerance, CurveOffsetCornerStyle.Sharp);
+                offsetResult = polyline.ToPolylineCurve().Offset(Rhino.Geometry.Plane.WorldXY, -Settings.OffsetDistance, RhinoDoc.ActiveDoc.ModelAbsoluteTolerance, CurveOffsetCornerStyle.Sharp);
             }
             Polyline pl;
             offsetResult[0].TryGetPolyline(out pl);
@@ -60,7 +60,7 @@ namespace MTPlugin
             var segments = polyline.GetSegments();
             foreach (Line line in segments)
             {
-                pts.AddRange(DivideLine(line, (int)Math.Ceiling(line.Length / Settings.FootprintDivideInterval), true, false));
+                pts.AddRange(DivideLine(line, (int)Math.Ceiling(line.Length / Settings.FootprintDiscretizationInterval), true, false));
             }
             return pts;
 
@@ -74,7 +74,7 @@ namespace MTPlugin
 
         public List<Point3d> DivideLine(Line line)
         {
-            return DivideLine(line, (int)Math.Ceiling(line.Length / Settings.FootprintDivideInterval), true, false);
+            return DivideLine(line, (int)Math.Ceiling(line.Length / Settings.FootprintDiscretizationInterval), true, false);
         }
 
         public List<Point3d> DivideLine(Line line, int number, bool start, bool end)

@@ -39,9 +39,10 @@ namespace MTPlugin
             pManager.AddCurveParameter("Footprints", "F", "Building footprint", GH_ParamAccess.list);
             pManager.AddLineParameter("Links", "L", "Street networks as Lines", GH_ParamAccess.list);
             pManager.AddRectangleParameter("Boundary", "BB", "Boundary of analysis", GH_ParamAccess.item);
-            pManager.AddNumberParameter("Segmentation Distance", "SD", "Distance of each segment while segmenting the footprints and links", GH_ParamAccess.item, 0.2);
-            pManager.AddNumberParameter("Offset Distance", "OD", "Inward offset distance for building foorprint shrinkage", GH_ParamAccess.item, 0.2);
-
+            pManager.AddNumberParameter("Footprint Discretization Interval", "FDI", "Interval of discretization for building footprints", GH_ParamAccess.item, 1.0);
+            pManager.AddNumberParameter("Links Discretization Interval", "LDI", "Interval of discretization for links", GH_ParamAccess.item, 1.0);
+            pManager.AddNumberParameter("Offset Distance", "OD", "Inward offset distance for building foorprint shrinkage", GH_ParamAccess.item, 1.0); 
+            pManager.AddBooleanParameter("Enable Adaptive Network", "AN", "Enable Adaptive Network", GH_ParamAccess.item);
 
 
             // If you want to change properties of certain parameters, 
@@ -57,6 +58,8 @@ namespace MTPlugin
             // Use the pManager object to register your output parameters.
             // Output parameters do not have default values, but they too must have the correct access type.
             pManager.AddPointParameter("Node Points", "Pt", "All nodes as points", GH_ParamAccess.list);
+            pManager.AddTextParameter("Node Type", "Type", "Types of all nodes", GH_ParamAccess.list);
+            pManager.AddIntegerParameter("Node Parent Id", "PId", "Parent ids of all nodes", GH_ParamAccess.list);
             pManager.AddCurveParameter("Triangles", "T", "All Triangles", GH_ParamAccess.list);
             pManager.AddCurveParameter("TVCells", "TVC", "All Traditional Voronoi Cells", GH_ParamAccess.list);
             pManager.AddCurveParameter("GVCells", "GVC", "All Guided Voronoi Cells", GH_ParamAccess.list);
@@ -90,22 +93,27 @@ namespace MTPlugin
             List<Curve> buildings = new List<Curve>();
             List<Line> links = new List<Line>();
             Rectangle3d boundaryRectangle = new Rectangle3d();
-            double segmentationDistance = 1.0;
+            double footprintDiscretizationInterval = 1.0;
+            double linkDiscretizationInterval = 1.0;
             double offsetDistance = 0.2;
+            bool enableAdaptiveNetwork = false;
             // Then we need to access the input parameters individually. 
             // When data cannot be extracted from a parameter, we should abort this method.
             if (!DA.GetDataList(0, buildings)) return;
             if (!DA.GetDataList(1, links)) return;
             if (!DA.GetData(2, ref boundaryRectangle)) return;
-            if (!DA.GetData(3, ref segmentationDistance)) return;
-            if (!DA.GetData(4, ref offsetDistance)) return;
+            if (!DA.GetData(3, ref footprintDiscretizationInterval)) return;
+            if (!DA.GetData(4, ref linkDiscretizationInterval)) return;
+            if (!DA.GetData(5, ref offsetDistance)) return;
+            if (!DA.GetData(6, ref enableAdaptiveNetwork)) return;
 
 
             ModelSettings settings = new ModelSettings()
             {
-                OffsetDist = offsetDistance,
-                LinkDivideInterval = segmentationDistance,
-                FootprintDivideInterval = segmentationDistance,
+                OffsetDistance = offsetDistance,
+                LinkDiscretizationInterval = linkDiscretizationInterval,
+                FootprintDiscretizationInterval = footprintDiscretizationInterval,
+                EnableAdaptiveNetwork = enableAdaptiveNetwork,
             };
 
             Model model = new Model {
@@ -116,10 +124,14 @@ namespace MTPlugin
             };
 
             model.Preprocessing();
+            model.InitializeResults();
             model.Solve();
             model.PostProcessing();
             model.ProcessRemainingTriangles();
+
             List<Point3d> nodePoints = model.NodePoints;
+            List<string> nodeTypes = new List<string>();
+            List<int> parentIds = new List<int>();
             List<Curve> triangles = new List<Curve>();
             List<Curve> traditionalVoronoiCells = new List<Curve>();
             List<Curve> guidedVoronoiCells = new List<Curve>();
@@ -138,13 +150,15 @@ namespace MTPlugin
 
             // assignment of output variables
             DA.SetDataList(0, nodePoints);
-            DA.SetDataList(1, triangles);
-            DA.SetDataList(2, traditionalVoronoiCells);
-            DA.SetDataList(3, guidedVoronoiCells);
-            DA.SetDataList(4, traditionalRegions);
-            DA.SetDataList(5, guidedRegions);
-            DA.SetDataList(6, extendedGuidedRegions);
-            DA.SetDataList(7, buildingIds);
+            DA.SetDataList(1, nodeTypes);
+            DA.SetDataList(2, parentIds);
+            DA.SetDataList(3, triangles);
+            DA.SetDataList(4, traditionalVoronoiCells);
+            DA.SetDataList(5, guidedVoronoiCells);
+            DA.SetDataList(6, traditionalRegions);
+            DA.SetDataList(7, guidedRegions);
+            DA.SetDataList(8, extendedGuidedRegions);
+            DA.SetDataList(9, buildingIds);
 
             //DA.SetDataList(7, dm.EdgeBelongingsInt);
         }

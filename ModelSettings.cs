@@ -8,9 +8,10 @@ namespace MTPlugin
 {
     public class ModelSettings
     {
-        public double OffsetDist = 0.05;
-        public double FootprintDivideInterval = 5.0;
-        public double LinkDivideInterval = 10.0;
+        public double OffsetDistance = 0.05;
+        public double FootprintDiscretizationInterval = 5.0;
+        public double LinkDiscretizationInterval = 10.0;
         public double JitterAmount = 0.0;
+        public bool EnableAdaptiveNetwork = false;
     }
 }
